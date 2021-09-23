@@ -7,27 +7,39 @@ import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.Log
 import android.view.Menu
+import android.view.View
+import androidx.activity.viewModels
 import androidx.appcompat.widget.SearchView
+import androidx.recyclerview.widget.DividerItemDecoration
+import androidx.recyclerview.widget.LinearLayoutManager
 
 
 import com.raywenderlich.podplay.R
+import com.raywenderlich.podplay.adapter.PodcastListAdapter
 import com.raywenderlich.podplay.databinding.ActivityPodcastBinding
 import com.raywenderlich.podplay.repository.ItunesRepo
 import com.raywenderlich.podplay.service.ItunesService
+import com.raywenderlich.podplay.viewmodel.SearchViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.String as String
 
-class PodcastActivity : AppCompatActivity() {
+class PodcastActivity : AppCompatActivity(), PodcastListAdapter.PodcastListAdapterListener {
 
-    private lateinit var binding: ActivityPodcastBinding
+    private val searchViewModel by viewModels<SearchViewModel>()
+    private lateinit var podcastListAdapter: PodcastListAdapter
+
+    private lateinit var databinding: ActivityPodcastBinding
 
     private val TAG = javaClass.simpleName
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        binding = ActivityPodcastBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        databinding = ActivityPodcastBinding.inflate(layoutInflater)
+        setContentView(databinding.root)
 
         val itunesService = ItunesService.instance
         val itunesRepo = ItunesRepo(itunesService)
@@ -38,6 +50,9 @@ class PodcastActivity : AppCompatActivity() {
         }
 
         setupToolbar()
+        setupViewModels()
+        updateControls()
+        handleIntent(intent)
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -60,13 +75,15 @@ class PodcastActivity : AppCompatActivity() {
     }
 
     private fun performSearch(term: String) {
-
-        val itunesService = ItunesService.instance
-        val itunesRepo = ItunesRepo(itunesService)
-
+        showProgressBar()
         GlobalScope.launch {
-            val results = itunesRepo.searchByTerm(term)
-            Log.i(TAG, "Results = ${results.body()}")
+            val results = searchViewModel.searchPodcast(term)
+            withContext(Dispatchers.Main) {
+                hideProgressBar()
+                databinding.toolbar.title = term
+                podcastListAdapter.setSearchData(results)
+
+            }
         }
     }
 
@@ -85,6 +102,42 @@ class PodcastActivity : AppCompatActivity() {
     }
 
     private fun setupToolbar() {
-        setSupportActionBar(binding.toolbar)
+        setSupportActionBar(databinding.toolbar)
     }
+
+    private fun setupViewModels() {
+        val service = ItunesService.instance
+        searchViewModel.itunesRepo = ItunesRepo(service)
+    }
+
+    private fun updateControls() {
+        databinding.podcastRecyclerView.setHasFixedSize(true)
+
+        val layoutManager = LinearLayoutManager(this)
+        databinding.podcastRecyclerView.layoutManager = layoutManager
+
+        val dividerItemDecoration = DividerItemDecoration(
+            databinding.podcastRecyclerView.context,
+            layoutManager.orientation)
+
+        databinding.podcastRecyclerView.addItemDecoration(dividerItemDecoration)
+
+        podcastListAdapter = PodcastListAdapter(null, this, this)
+        databinding.podcastRecyclerView.adapter = podcastListAdapter
+
+    }
+
+    override fun onShowDetails(podcastSummaryViewData: SearchViewModel.PodcastSummaryViewData) {
+        TODO("Not yet implemented")
+    }
+
+    private fun showProgressBar() {
+        databinding.progressBar.visibility = View.VISIBLE
+    }
+
+    private fun hideProgressBar() {
+        databinding.progressBar.visibility = View.INVISIBLE
+    }
+
+
 }
