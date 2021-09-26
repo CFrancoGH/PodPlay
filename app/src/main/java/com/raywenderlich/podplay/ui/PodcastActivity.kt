@@ -1,63 +1,56 @@
 package com.raywenderlich.podplay.ui
 
-import android.app.AlertDialog
+
 import android.app.SearchManager
 import android.content.Context
 import android.content.Intent
-import androidx.appcompat.app.AppCompatActivity
 import android.os.Bundle
 import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import androidx.activity.viewModels
+import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SearchView
 import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.LinearLayoutManager
-
-
 import com.raywenderlich.podplay.R
 import com.raywenderlich.podplay.adapter.PodcastListAdapter
+import com.raywenderlich.podplay.adapter.PodcastListAdapter.PodcastListAdapterListener
 import com.raywenderlich.podplay.databinding.ActivityPodcastBinding
 import com.raywenderlich.podplay.repository.ItunesRepo
 import com.raywenderlich.podplay.repository.PodcastRepo
 import com.raywenderlich.podplay.service.ItunesService
+import com.raywenderlich.podplay.service.RssFeedService
 import com.raywenderlich.podplay.viewmodel.PodcastViewModel
 import com.raywenderlich.podplay.viewmodel.SearchViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.String as String
 
-class PodcastActivity : AppCompatActivity(), PodcastListAdapter.PodcastListAdapterListener {
+class PodcastActivity : AppCompatActivity(), PodcastListAdapterListener {
 
     private val searchViewModel by viewModels<SearchViewModel>()
     private val podcastViewModel by viewModels<PodcastViewModel>()
 
-    private lateinit var searchMenuItem: MenuItem
     private lateinit var podcastListAdapter: PodcastListAdapter
+    private lateinit var searchMenuItem: MenuItem
     private lateinit var databinding: ActivityPodcastBinding
 
-    private val TAG = javaClass.simpleName
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         databinding = ActivityPodcastBinding.inflate(layoutInflater)
+
         setContentView(databinding.root)
-
-        val itunesService = ItunesService.instance
-        val itunesRepo = ItunesRepo(itunesService)
-
-        GlobalScope.launch {
-            val results = itunesRepo.searchByTerm("Android Developer")
-            Log.i(TAG, "Results = ${results.body()}")
-        }
-
         setupToolbar()
         setupViewModels()
         updateControls()
+        createSubscription()
         handleIntent(intent)
         addBackStackListener()
     }
@@ -78,7 +71,7 @@ class PodcastActivity : AppCompatActivity(), PodcastListAdapter.PodcastListAdapt
         //4
         searchView.setSearchableInfo(searchManager.getSearchableInfo(componentName))
         if (supportFragmentManager.backStackEntryCount > 0) {
-            databinding.podcastRecyclerView.visibility = View.VISIBLE
+            databinding.podcastRecyclerView.visibility = View.INVISIBLE
         }
 
         if (databinding.podcastRecyclerView.visibility == View.INVISIBLE) {
@@ -122,7 +115,7 @@ class PodcastActivity : AppCompatActivity(), PodcastListAdapter.PodcastListAdapt
     private fun setupViewModels() {
         val service = ItunesService.instance
         searchViewModel.itunesRepo = ItunesRepo(service)
-        podcastViewModel.podcastRepo = PodcastRepo()
+        podcastViewModel.podcastRepo = PodcastRepo(RssFeedService.instance)
     }
 
     private fun updateControls() {
@@ -142,22 +135,23 @@ class PodcastActivity : AppCompatActivity(), PodcastListAdapter.PodcastListAdapt
 
     }
 
-    override fun onShowDetails(podcastSummaryViewData: SearchViewModel.PodcastSummaryViewData) {
-        //1
-        val feedUrl = podcastSummaryViewData.feedUrl ?: return
-        //2
-        showProgressBar()
-        //3
-        val podcast = podcastViewModel.getPodcast(podcastSummaryViewData)
-        //4
-        hideProgressBar()
-        if (podcast != null) {
-            //5
-            showDetailsFragment()
-        } else {
-            //6
-            showError("Error loading feed $feedUrl")
+    override fun onShowDetails(podcastSummaryViewData:
+                               SearchViewModel.PodcastSummaryViewData) {
+        podcastSummaryViewData.feedUrl?.let {
+            showProgressBar()
+            podcastViewModel.getPodcast(podcastSummaryViewData)
         }
+    }
+
+    private fun createSubscription() {
+        podcastViewModel.podcastLiveData.observe(this, {
+            hideProgressBar()
+            if (it != null) {
+                showDetailsFragment()
+            } else {
+                showError("Error loading feed")
+            }
+        })
     }
 
     private fun showProgressBar() {
@@ -185,10 +179,12 @@ class PodcastActivity : AppCompatActivity(), PodcastListAdapter.PodcastListAdapt
         //1
         val podcastDetailsFragment = createPodcastDetailsFragment()
         //2
-        supportFragmentManager.beginTransaction().add(
-            R.id.podcastDetailsContainer,
+        supportFragmentManager
+            .beginTransaction()
+            .add(R.id.podcastDetailsContainer,
             podcastDetailsFragment, TAG_DETAILS_FRAGMENT)
-            .addToBackStack("DetailsFragment").commit()
+            .addToBackStack("DetailsFragment")
+            .commit()
         //3
         databinding.podcastRecyclerView.visibility = View.INVISIBLE
         //4
